@@ -3,9 +3,14 @@ let camY = 0;
 
 let dragStartX = 0;
 let dragStartY = 0;
+let dragStartScale = 1;
 let dragStartScreenX = 0;
 let dragStartScreenY = 0;
 let touchTime = 0;
+let isDrag = false;
+let isHoldDrag = false;
+let isTouchInput = false;
+let isPinchZoom = false;
 
 /** @type {Map<Number, Map<Number, Chunk>>} */
 let chunks = new Map();
@@ -15,7 +20,6 @@ let flagCount = 0;
 let mistakeCount = 0;
 
 let canvas;
-let isDrag = false;
 
 let cellSize = 40;
 
@@ -58,7 +62,7 @@ function windowResized() {
 }
 
 function draw() {
-  processKeys();
+  processInput();
 
   clear(128,128,128);
 
@@ -81,7 +85,7 @@ function draw() {
   }
 
   // Tutorial text
-  if (camX+width > cellSize*-5 && camX < cellSize*6 && camY+width > cellSize*-3 && camY < cellSize*4) {
+  if (camX+width > cellSize*-5 && camX < cellSize*6 && camY+height > cellSize*-3 && camY < cellSize*4) {
     stroke(0);
     fill(255);
     rect(cellSize*-4, cellSize*-2, cellSize*8, cellSize*4);
@@ -90,14 +94,25 @@ function draw() {
     fill(0);
     textAlign(CENTER, CENTER)
     textSize(cellSize * 0.7);
-    text(
-      "Left click to reveal\n"+
-      "Right click to flag\n"+
-      "Left drag to quick solve\n"+
-      "Right drag to pan",
-      0,
-      0
-    );
+    if (isTouchInput) {
+      text(
+        "Long press to reveal\n"+
+        "Tap to flag\n"+
+        "Long press + drag to\n"+
+        "quick solve",
+        0,
+        0
+      );
+    } else {
+      text(
+        "Left click to reveal\n"+
+        "Right click to flag\n"+
+        "Left drag to quick solve\n"+
+        "Right drag to pan",
+        0,
+        0
+      );
+    }
   }
 
   pop()
@@ -109,7 +124,7 @@ function draw() {
   let lines = [
     `${revealCount} revealed`,
     `${flagCount} flagged`,
-    // `${mistakeCount} mistakes`
+    `${mistakeCount} mistake${mistakeCount === 1 ? '' : 's'}`
   ];
   let maxWidth = 0;
 
@@ -146,9 +161,19 @@ function touchStarted(event) {
   touchTime = Date.now();
 
   isDrag = false;
-  event.preventDefault();
+  isLongDrag = false;
+  isPinchZoom = false;
 
-  debugText = mouseButton
+  if (mouseButton === 0) {
+    isTouchInput = true;
+  } else {
+    isTouchInput = false;
+  }
+
+  //event.preventDefault();
+
+  //debugText = mouseButton
+  return false;
 }
 
 function touchEnded() {
@@ -183,27 +208,67 @@ function touchEnded() {
   }
 }
 
-function touchMoved() {
-  if (!isDrag) {
-    if (Math.abs(dragStartScreenX - mouseX) + Math.abs(dragStartScreenY - mouseY) > 3) {
+function processInput() {
+  let speed = 10;
+
+  // Keyboard pan
+  if (keyIsDown(65) || keyIsDown(LEFT_ARROW))  camX -= speed; // A
+  if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) camX += speed; // D
+  if (keyIsDown(87) || keyIsDown(UP_ARROW))    camY -= speed; // W
+  if (keyIsDown(83) || keyIsDown(DOWN_ARROW))  camY += speed; // S
+  if (keyIsDown(187))  cellSize *= 1.01; // +
+  if (keyIsDown(189))  cellSize /= 1.01; // -
+
+  if (mouseIsPressed) {
+    // Check if input is a drag
+    if (!isDrag) {
+      if (Math.abs(dragStartScreenX - mouseX) + Math.abs(dragStartScreenY - mouseY) > 3) {
+        isDrag = true;
+        if (Date.now() - touchTime > 200) {
+          isLongDrag = true;
+        }
+      }
+    }
+
+    if (touches.length > 1) {
+      // Process pinch zoom
       isDrag = true;
-    } else {
-      return;
-    }
-  }
 
-  let x = Math.floor((mouseX + camX)/cellSize);
-  let y = Math.floor((mouseY + camY)/cellSize);
+      let focusX = (touches[0].x + touches[1].x)/2;
+      let focusY = (touches[0].y + touches[1].y)/2;
+      let distance = Math.sqrt(Math.pow(touches[0].x - touches[1].x, 2) + Math.pow(touches[0].y - touches[1].y, 2));
 
-  if (mouseButton === LEFT) {
-    if (isNumbered(getCell(x,y))) {
-      chordSquare(x,y,2);
-    } else {
-      //revealSquare(x,y);
+      if (!isPinchZoom) {
+        dragStartScale = distance / cellSize;
+        dragStartX = (focusX + camX) / cellSize;
+        dragStartY = (focusY + camY) / cellSize;
+        isPinchZoom = true;
+      }
+
+      cellSize = distance / dragStartScale
+      if (isNaN(cellSize)) cellSize = 40;
+      if (cellSize <= 10) cellSize = 10;
+
+      camX = dragStartX * cellSize - focusX;
+      camY = dragStartY * cellSize - focusY;
+
+
+    } else if (isDrag) {
+      // Process drag
+      let x = Math.floor((mouseX + camX)/cellSize);
+      let y = Math.floor((mouseY + camY)/cellSize);
+
+      if (mouseButton === LEFT || (mouseButton === 0 && isLongDrag)) {
+        if (isNumbered(getCell(x,y))) {
+          chordSquare(x,y,2);
+        } else {
+          //revealSquare(x,y);
+        }
+      } else if (mouseButton === CENTER || mouseButton === RIGHT || (mouseButton === 0 && !isLongDrag)) {
+        camX = dragStartX - mouseX;
+        camY = dragStartY - mouseY;
+      }
     }
-  } else if (mouseButton === CENTER || mouseButton === RIGHT || mouseButton === 0) {
-    camX = dragStartX - mouseX;
-    camY = dragStartY - mouseY;
   }
 }
 
@@ -224,15 +289,6 @@ function getChunkWith(x,y) {
   }
 
   return chunk;
-}
-
-function processKeys() {
-  let speed = 10;
-
-  if (keyIsDown(65) || keyIsDown(LEFT_ARROW))  camX -= speed; // A
-  if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) camX += speed; // D
-  if (keyIsDown(87) || keyIsDown(UP_ARROW))    camY -= speed; // W
-  if (keyIsDown(83) || keyIsDown(DOWN_ARROW))  camY += speed; // S
 }
 
 function getCell(x,y) {
@@ -407,18 +463,21 @@ class Chunk {
           rect(dx, dy, size, size);
         } else if (c === BLANK) {
           // Do nothing
-        } else if (c === MARKED_EMPTY || c === MARKED_MINE || c === REVEALED_MINE) {
-          // Flag/mine - Dark red
+        } else if (c === MARKED_EMPTY || c === MARKED_MINE) {
+          // Flag - Dark red
           strokeWeight(2);
           fill(100,0,0);
           rect(dx, dy, size, size);
-          if (c == REVEALED_MINE) {
-            push();
-            noStroke();
-            fill(255);
-            text("X", dx + size/2, dy + size/2);
-            pop();
-          }
+        } else if (c === REVEALED_MINE) {
+          // Mine - Red
+          strokeWeight(1);
+          fill(150,0,0);
+          rect(dx, dy, size, size);
+          
+          noStroke();
+          fill(255);
+          text("X", dx + size/2, dy + size/2);
+          stroke(0);
         } else if (c < REVEALED_MINE) {
           // Hidden cell - gray
           strokeWeight(2);
@@ -429,7 +488,7 @@ class Chunk {
           strokeWeight(0.5);
           fill(cellColors[c]);
           rect(dx, dy, size, size);
-          if (c > 0) {
+          if (c > 0 && cellSize > 20) {
             push();
             noStroke();
             fill(0);

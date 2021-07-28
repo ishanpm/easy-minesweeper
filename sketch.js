@@ -58,7 +58,8 @@ function windowResized() {
 }
 
 function draw() {
-  // put drawing code here
+  processKeys();
+
   clear(128,128,128);
 
   fill(128);
@@ -223,6 +224,15 @@ function getChunkWith(x,y) {
   }
 
   return chunk;
+}
+
+function processKeys() {
+  let speed = 10;
+
+  if (keyIsDown(65) || keyIsDown(LEFT_ARROW))  camX -= speed; // A
+  if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) camX += speed; // D
+  if (keyIsDown(87) || keyIsDown(UP_ARROW))    camY -= speed; // W
+  if (keyIsDown(83) || keyIsDown(DOWN_ARROW))  camY += speed; // S
 }
 
 function getCell(x,y) {
